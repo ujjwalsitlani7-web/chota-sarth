@@ -1,0 +1,33 @@
+{
+  "name": "chota-sarth",
+  "productName": "Chota Sarth",
+  "version": "0.1.0",
+  "description": "Chota Sarth: an always-on Mac companion that gets your product found. Checks AI answers, reads your screen, drafts posts and replies you approve.",
+  "main": "src/main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --mac dmg"
+  },
+  "devDependencies": {
+    "electron": "44.7.0",
+    "electron-builder": "26.17.0"
+  },
+  "build": {
+    "appId": "app.chotasarth.mac",
+    "productName": "Chota Sarth",
+    "files": [
+      "src/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg"
+      ],
+      "extendInfo": {
+        "LSUIElement": true,
+        "NSScreenCaptureUsageDescription": "Chota Sarth reads your screen only when you press Read my screen, to find people asking about your problem and draft replies."
+      }
+    }
+  }
+}
