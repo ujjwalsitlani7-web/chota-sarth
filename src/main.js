@@ -3,11 +3,12 @@
 // every call to Claude. The renderer pages never see the API key.
 const {
   app, BrowserWindow, ipcMain, globalShortcut, screen, desktopCapturer,
-  clipboard, safeStorage, systemPreferences, Tray, Menu, nativeImage, shell,
+  clipboard, safeStorage, systemPreferences, Tray, Menu, nativeImage, shell, session,
 } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const assistant = require('./assistant.js');
+const voice = require('./voice.js');
 
 const isMac = process.platform === 'darwin';
 const FAKE_AI = process.env.SARTH_FAKE_AI === '1'; // for testing without an API key
@@ -20,7 +21,7 @@ let tray = null;
 
 // ---------------- storage (one JSON file in the app's private folder) ----------------
 const dataFile = () => path.join(app.getPath('userData'), 'chota-sarth.json');
-const defaultData = () => ({ v: 1, profile: { name: '', about: '' }, memory: [], talk: [], project: null, drafts: [], runs: [], questions: [], chat: [], orb: null, apiKeyEnc: null });
+const defaultData = () => ({ v: 1, profile: { name: '', about: '' }, memory: [], talk: [], project: null, drafts: [], runs: [], questions: [], chat: [], orb: null, apiKeyEnc: null, elevenKeyEnc: null, voice: { engine: 'mac', macVoice: '', elevenVoiceId: '', elevenVoiceName: '', speak: true } });
 let data = null;
 function loadData() {
   try { data = Object.assign(defaultData(), JSON.parse(fs.readFileSync(dataFile(), 'utf8'))); }
@@ -34,7 +35,7 @@ function saveData() {
     catch (e) { console.error('save failed', e); }
   }, 150);
 }
-function publicData() { const { apiKeyEnc, ...rest } = data; return { ...rest, hasKey: !!apiKeyEnc || FAKE_AI }; }
+function publicData() { const { apiKeyEnc, elevenKeyEnc, ...rest } = data; return { ...rest, hasKey: !!apiKeyEnc || FAKE_AI, hasEleven: !!elevenKeyEnc || FAKE_AI }; }
 
 // The API key is encrypted with the macOS keychain-backed safeStorage before it touches disk.
 function setKey(key) {
@@ -46,6 +47,17 @@ function setKey(key) {
 function getKey() {
   if (!data.apiKeyEnc) return null;
   try { return safeStorage.decryptString(Buffer.from(data.apiKeyEnc, 'base64')); } catch { return null; }
+}
+// ElevenLabs key, stored the same encrypted way.
+function setElevenKey(key) {
+  const k = (key || '').trim();
+  if (!k) { data.elevenKeyEnc = null; saveData(); return; }
+  if (!safeStorage.isEncryptionAvailable()) throw new Error('Secure storage is not available on this Mac.');
+  data.elevenKeyEnc = safeStorage.encryptString(k).toString('base64'); saveData();
+}
+function getElevenKey() {
+  if (!data.elevenKeyEnc) return null;
+  try { return safeStorage.decryptString(Buffer.from(data.elevenKeyEnc, 'base64')); } catch { return null; }
 }
 
 // ---------------- Claude ----------------
@@ -244,6 +256,47 @@ ipcMain.handle('memory:delete', wrap((id) => { data.memory = data.memory.filter(
 ipcMain.handle('profile:set', wrap((p) => { data.profile = { name: String(p.name || '').trim(), about: String(p.about || '').trim() }; saveData(); return publicData(); }));
 ipcMain.handle('talk:clear', wrap(() => { data.talk = []; saveData(); return publicData(); }));
 
+// ---------- voice ----------
+function orbState(state) { if (orbWin) orbWin.webContents.send('orb:state', state); }
+ipcMain.handle('voice:transcribe', wrap(async (bytes, mime) => {
+  orbState('thinking');
+  if (FAKE_AI) return 'What is on my day today?';
+  const key = getElevenKey();
+  if (!key) throw Object.assign(new Error('To talk to me, add your ElevenLabs key in Setup › Voice. (Or press Fn twice to dictate.)'), { code: 'no_eleven' });
+  return await voice.elevenTranscribe(key, Buffer.from(bytes), mime);
+}));
+ipcMain.handle('voice:speak', wrap(async (text) => {
+  const v = data.voice || {};
+  const clean = String(text || '').replace(/[*_#`]/g, '').slice(0, 1500);
+  if (!clean) return { played: 'none' };
+  if (FAKE_AI) return { played: 'fake' };
+  if (v.engine === 'eleven' && v.elevenVoiceId) {
+    const key = getElevenKey();
+    if (!key) throw new Error('Add your ElevenLabs key in Setup › Voice to use that voice.');
+    return { played: 'eleven', mp3: await voice.elevenSpeak(key, v.elevenVoiceId, clean) };
+  }
+  orbState('speaking');
+  const r = await voice.sayMac(clean, v.macVoice);
+  orbState('idle');
+  return r;
+}));
+ipcMain.handle('voice:stop', wrap(() => { voice.stopSpeaking(); orbState('idle'); return true; }));
+ipcMain.handle('voice:voices', wrap(async () => {
+  const mac = await voice.macVoices();
+  let eleven = [], elevenError = null;
+  const key = getElevenKey();
+  if (key) { try { eleven = await voice.elevenVoices(key); } catch (e) { elevenError = e.message; } }
+  return { mac, eleven, elevenError };
+}));
+ipcMain.handle('voice:set', wrap((v) => { data.voice = Object.assign({}, data.voice, v); saveData(); return publicData(); }));
+ipcMain.handle('eleven:setKey', wrap((k) => { setElevenKey(k); return publicData(); }));
+ipcMain.handle('mic:ask', wrap(async () => {
+  if (!isMac) return true;
+  if (systemPreferences.getMediaAccessStatus('microphone') === 'granted') return true;
+  return await systemPreferences.askForMediaAccess('microphone');
+}));
+ipcMain.on('orb:state', (e, state) => orbState(state));
+
 ipcMain.handle('ask', wrap(async (question) => {
   data.chat.push({ role: 'user', text: question, at: Date.now() });
   const history = data.chat.slice(-10).map((m) => (m.role === 'user' ? 'Founder: ' : 'Chota Sarth: ') + m.text).join('\n');
@@ -302,6 +355,10 @@ app.whenReady().then(() => {
   createOrb(); createPanel(); createTray();
   const ok = globalShortcut.register('Alt+Space', () => togglePanel());
   if (!ok) globalShortcut.register('CommandOrControl+Shift+Space', () => togglePanel());
+  // Siri-style: Control + Option + Space starts (or stops) listening from anywhere.
+  globalShortcut.register('Control+Alt+Space', () => { if (!panelWin.isVisible()) togglePanel(true); panelWin.webContents.send('voice:toggle'); });
+  // Let our own pages use the microphone (nothing else is ever loaded in these windows).
+  session.defaultSession.setPermissionRequestHandler((wc, permission, cb) => cb(permission === 'media'));
   if (!getKey() && !FAKE_AI) setTimeout(() => togglePanel(true), 600);   // first run: open setup
 });
 
@@ -309,8 +366,11 @@ app.whenReady().then(() => {
 ipcMain.on('orb:drag', (e, { dx, dy }) => { const [x, y] = orbWin.getPosition(); orbWin.setPosition(x + dx, y + dy); });
 ipcMain.on('orb:dragEnd', () => { const [x, y] = orbWin.getPosition(); data.orb = { x, y }; saveData(); });
 ipcMain.on('orb:click', () => togglePanel());
+// Press and hold the orb to talk; let go to stop.
+ipcMain.on('orb:holdStart', () => { if (!panelWin.isVisible()) togglePanel(true); panelWin.webContents.send('voice:start'); });
+ipcMain.on('orb:holdEnd', () => panelWin.webContents.send('voice:stop'));
 
-app.on('will-quit', () => globalShortcut.unregisterAll());
+app.on('will-quit', () => { globalShortcut.unregisterAll(); voice.stopSpeaking(); });
 app.on('window-all-closed', (e) => e.preventDefault());
 
 // Test hook: lets an automated check capture the windows without a person present.
