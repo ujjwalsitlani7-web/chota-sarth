@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:; media-src data: blob:">
 <title>Chota Sarth</title>
 <style>
 :root{
@@ -84,6 +84,17 @@ textarea{min-height:80px;resize:vertical}
 .hint{font-size:11px;color:var(--soft);padding:0 14px 10px}
 .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
 .chips button{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:6px 10px;cursor:pointer;font-size:12px;color:var(--ink)}
+.mic{width:40px;min-width:40px;padding:0}
+.mic svg{width:18px;height:18px}
+.mic.on{background:#E5322D;border-color:#E5322D;color:#fff}
+.listen{display:flex;align-items:center;gap:10px;margin:0 14px 8px;padding:10px 12px;border-radius:12px;background:var(--card);border:2px solid #E5322D}
+.listen .dot{width:10px;height:10px;border-radius:50%;background:#E5322D;animation:blink 1s infinite}
+@keyframes blink{50%{opacity:.25}}
+.listen .lvl{flex:1;height:6px;border-radius:999px;background:var(--hair);overflow:hidden}
+.listen .lvl i{display:block;height:100%;width:0;background:#E5322D;transition:width .08s}
+select{width:100%;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:9px 11px;min-height:38px;color:var(--ink);font:inherit}
+.note{font-size:12px;color:var(--soft);margin:6px 0 0}
+@media (prefers-reduced-motion: reduce){.listen .dot{animation:none}}
 </style>
 </head>
 <body>
@@ -187,7 +198,23 @@ textarea{min-height:80px;resize:vertical}
       </div>
       <div class="card">
         <h2>Voice</h2>
-        <label class="row" style="font-weight:400;margin:0"><input type="checkbox" id="speak"> Read Chota Sarth’s answers out loud</label>
+        <p class="muted" style="margin:0">Talk: press ⌃ ⌥ Space anywhere, hold the orb, or tap the microphone.</p>
+        <label class="row" style="font-weight:400;margin:10px 0 0"><input type="checkbox" id="speak"> Answer me out loud</label>
+        <label for="voicePick">Chota Sarth’s voice</label>
+        <select id="voicePick"><option value="">Loading voices…</option></select>
+        <div class="row" style="margin-top:8px"><button class="btn" type="button" id="voiceTest">Test the voice</button></div>
+        <label for="s-eleven">ElevenLabs key <small>(needed for talking to me, and for ElevenLabs voices)</small></label>
+        <form id="elevenForm" class="row">
+          <input type="password" id="s-eleven" autocomplete="off" placeholder="Paste your ElevenLabs API key" style="flex:1">
+          <button class="btn" type="submit">Save key</button>
+        </form>
+        <div class="status" id="elevenStatus"></div>
+        <label for="s-voiceId">A custom voice <small>(e.g. your friend’s cloned voice)</small></label>
+        <form id="voiceIdForm" class="row">
+          <input type="text" id="s-voiceId" autocomplete="off" placeholder="ElevenLabs Voice ID" style="flex:1">
+          <button class="btn" type="submit">Use this voice</button>
+        </form>
+        <p class="note">Create the voice in ElevenLabs › Voices › Add voice, from recordings of your friend, and copy its Voice ID here. Only clone someone’s voice with their clear permission.</p>
       </div>
       <div class="card">
         <h2>Always on</h2>
@@ -198,12 +225,14 @@ textarea{min-height:80px;resize:vertical}
     </section>
   </main>
 
+  <div class="listen" id="listenBar" hidden><span class="dot" aria-hidden="true"></span><span id="listenText">Listening…</span><span class="lvl" aria-hidden="true"><i id="lvl"></i></span><button class="btn" type="button" id="listenDone">Done</button></div>
   <form class="ask" id="askForm">
+    <button class="btn mic" type="button" id="micBtn" aria-label="Talk to Chota Sarth" title="Talk (⌃ ⌥ Space)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"></rect><path d="M5 10a7 7 0 0 0 14 0M12 17v4M8 21h8"></path></svg></button>
     <label for="askInput" class="muted" style="position:absolute;left:-9999px">Talk to Chota Sarth</label>
     <input type="text" id="askInput" placeholder="Ask or tell me anything…" autocomplete="off">
     <button class="btn primary" type="submit">Send</button>
   </form>
-  <div class="hint" id="hint">Press Fn twice to speak instead of typing.</div>
+  <div class="hint" id="hint">Tap the microphone, hold the orb, or press ⌃ ⌥ Space to talk.</div>
   <div class="toast" id="toast" role="status"></div>
 <script src="panel.js"></script>
 </body>
