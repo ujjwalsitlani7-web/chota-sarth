@@ -3,7 +3,7 @@
   'use strict';
   const F = window.findable;
   const $ = (id) => document.getElementById(id);
-  let D = { profile: {}, memory: [], talk: [], project: null, drafts: [], runs: [], questions: [], chat: [], hasKey: false };
+  let D = { profile: {}, memory: [], talk: [], project: null, drafts: [], runs: [], questions: [], chat: [], hasKey: false, hasEleven: false, voice: {} };
   let speak = localStorage.getItem('sarth.speak') === '1';
 
   function el(tag, props, kids) {
@@ -14,7 +14,22 @@
   function toast(t) { const x = $('toast'); x.textContent = t; x.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => x.classList.remove('show'), 1800); }
   function showErr(box, msg) { $(box).innerHTML = ''; if (msg) $(box).appendChild(el('div', { cls: 'err', text: msg })); }
   async function call(p) { const r = await p; if (!r.ok) { const e = new Error(r.error); e.code = r.code; throw e; } return r.value; }
-  function say(text) { if (!speak || !window.speechSynthesis) return; speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.rate = 1.02; speechSynthesis.speak(u); }
+  // ---------- speaking ----------
+  let audioEl = null, lastWasVoice = false;
+  function stopAudio() { if (audioEl) { try { audioEl.pause(); } catch (_) {} audioEl = null; } }
+  async function say(text, force) {
+    if (!text || (!speak && !force && !lastWasVoice)) return;
+    try {
+      const r = await call(F.speak(text));
+      if (r.played === 'eleven' && r.mp3) {
+        stopAudio(); audioEl = new Audio('data:audio/mpeg;base64,' + r.mp3);
+        F.setOrbState('speaking'); audioEl.onended = () => F.setOrbState('idle');
+        await audioEl.play().catch(() => F.setOrbState('idle'));
+      } else if (r.played === 'none' && window.speechSynthesis) {
+        speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+      }
+    } catch (e) { F.setOrbState('idle'); toast(e.message); }
+  }
   function saveDrafts() { F.setDrafts(D.drafts); renderBadge(); }
   const uid = () => Math.random().toString(36).slice(2, 10);
 
@@ -58,8 +73,9 @@
     $('starters').hidden = D.talk.length > 0;
     c.lastChild && c.lastChild.scrollIntoView({ block: 'end' });
   }
-  async function send(q) {
+  async function send(q, opts) {
     if (!q || busy) return; busy = true; showErr('talkErr', '');
+    lastWasVoice = !!(opts && opts.voice);
     go('chat');
     D.talk.push({ role: 'user', text: q }); renderTalk();
     const thinking = el('div', { cls: 'msg bot muted', text: 'Thinking…' }); $('talk').appendChild(thinking); thinking.scrollIntoView({ block: 'end' });
@@ -67,11 +83,65 @@
       const out = await call(F.chat(q));
       D.talk.push({ role: 'assistant', text: out.text, actions: out.actions });
       try { D = Object.assign(D, await call(F.getData())); } catch { }
-      renderTalk(); say(out.text);
-    } catch (err) { thinking.remove(); D.talk.pop(); renderTalk(); showErr('talkErr', err.message); }
+      renderTalk(); F.setOrbState('idle'); say(out.text);
+    } catch (err) { thinking.remove(); D.talk.pop(); renderTalk(); F.setOrbState('idle'); showErr('talkErr', err.message); }
     busy = false;
   }
   $('askForm').addEventListener('submit', (e) => { e.preventDefault(); const q = $('askInput').value.trim(); $('askInput').value = ''; send(q); });
+
+  // ---------- listening (Siri-style) ----------
+  const V = { on: false, rec: null, stream: null, chunks: [], ctx: null, raf: 0, heard: false, quietSince: 0, startAt: 0 };
+  async function startListening() {
+    if (V.on || busy) return;
+    stopAudio(); F.stopSpeaking(); showErr('talkErr', '');
+    let ok = false; try { ok = await call(F.askMic()); } catch (_) {}
+    if (!ok) { showErr('talkErr', 'I need the microphone. Turn it on in System Settings \u203a Privacy & Security \u203a Microphone, then try again.'); return; }
+    go('chat');
+    try { V.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
+    catch (e) { showErr('talkErr', 'Could not use the microphone: ' + e.message); return; }
+    V.chunks = [];
+    const mime = window.MediaRecorder && MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : '';
+    V.rec = new MediaRecorder(V.stream, mime ? { mimeType: mime } : undefined);
+    V.rec.ondataavailable = (e) => { if (e.data && e.data.size) V.chunks.push(e.data); };
+    V.rec.onstop = finishListening;
+    V.rec.start(250);
+    V.on = true; V.heard = false; V.startAt = V.quietSince = performance.now();
+    // Level meter + stop by itself after a short silence, like Siri.
+    V.ctx = new AudioContext(); const an = V.ctx.createAnalyser(); an.fftSize = 1024; V.ctx.createMediaStreamSource(V.stream).connect(an);
+    const buf = new Uint8Array(an.fftSize);
+    const tick = () => {
+      if (!V.on) return;
+      an.getByteTimeDomainData(buf); let sum = 0; for (let i = 0; i < buf.length; i++) { const d = (buf[i] - 128) / 128; sum += d * d; }
+      const rms = Math.sqrt(sum / buf.length), now = performance.now();
+      $('lvl').style.width = Math.min(100, rms * 400) + '%';
+      if (rms > 0.04) { V.heard = true; V.quietSince = now; }
+      if ((V.heard && now - V.quietSince > 1500) || now - V.startAt > 20000 || (!V.heard && now - V.startAt > 8000)) stopListening();
+      else V.raf = requestAnimationFrame(tick);
+    };
+    tick();
+    $('listenBar').hidden = false; $('listenText').textContent = 'Listening\u2026'; $('micBtn').classList.add('on'); F.setOrbState('listening');
+  }
+  function stopListening() {
+    if (!V.on) return; V.on = false; cancelAnimationFrame(V.raf);
+    try { V.rec.stop(); } catch (_) {}
+    try { V.stream.getTracks().forEach((t) => t.stop()); } catch (_) {}
+    try { V.ctx.close(); } catch (_) {}
+    $('micBtn').classList.remove('on');
+  }
+  async function finishListening() {
+    if (!V.heard) { $('listenBar').hidden = true; F.setOrbState('idle'); toast('I didn\u2019t hear anything'); return; }
+    $('listenText').textContent = 'Understanding\u2026'; F.setOrbState('thinking');
+    try {
+      const blob = new Blob(V.chunks, { type: (V.rec && V.rec.mimeType) || 'audio/webm' });
+      const text = await call(F.transcribe(await blob.arrayBuffer(), blob.type));
+      $('listenBar').hidden = true;
+      if (!text) { F.setOrbState('idle'); toast('I didn\u2019t catch that'); return; }
+      F.setOrbState('thinking'); await send(text, { voice: true });
+    } catch (e) { $('listenBar').hidden = true; F.setOrbState('idle'); showErr('talkErr', e.message); }
+  }
+  $('micBtn').addEventListener('click', () => (V.on ? stopListening() : startListening()));
+  $('listenDone').addEventListener('click', stopListening);
+  F.onVoice((cmd) => { if (cmd === 'start') startListening(); else if (cmd === 'stop') stopListening(); else (V.on ? stopListening() : startListening()); });
   $('starters').addEventListener('click', (e) => { const b = e.target.closest('button[data-q]'); if (b) send(b.dataset.q); });
 
   // "I'd like to…" cards: nothing that changes something happens without a yes.
@@ -212,7 +282,40 @@
     $('keyStatus').textContent = D.hasKey ? 'A key is saved.' : 'No key saved yet.';
     $('speak').checked = speak;
     F.getLogin().then((r) => { if (r.ok) $('atLogin').checked = !!r.value; });
+    $('elevenStatus').textContent = D.hasEleven ? 'ElevenLabs key saved. You can talk to me.' : 'No ElevenLabs key yet: I can speak with Mac voices, but to understand your voice I need this key.';
+    $('s-voiceId').value = (D.voice && D.voice.engine === 'eleven' && D.voice.elevenVoiceId) || '';
+    loadVoices();
   }
+  async function loadVoices() {
+    const pick = $('voicePick'); pick.innerHTML = '';
+    let list = { mac: [], eleven: [] };
+    try { list = await call(F.voices()); } catch (e) { $('elevenStatus').textContent = e.message; }
+    if (list.elevenError) $('elevenStatus').textContent = list.elevenError;
+    const v = D.voice || {};
+    const cur = v.engine === 'eleven' ? 'el:' + (v.elevenVoiceId || '') : 'mac:' + (v.macVoice || '');
+    const add = (group, items) => { if (!items.length) return; const g = el('optgroup', { label: group }); items.forEach((o) => { const opt = el('option', { value: o.value, text: o.label }); if (o.value === cur) opt.selected = true; g.appendChild(opt); }); pick.appendChild(g); };
+    const def = el('option', { value: 'mac:', text: 'Mac default voice' }); if (cur === 'mac:') def.selected = true; pick.appendChild(def);
+    const mac = (list.mac || []).filter((m) => /^en|^hi/.test(m.lang)).sort((a, b) => (b.lang === 'en_IN') - (a.lang === 'en_IN') || (b.lang.startsWith('hi')) - (a.lang.startsWith('hi')));
+    add('Mac voices', mac.map((m) => ({ value: 'mac:' + m.id, label: m.name + ' (' + m.lang.replace('_', '-') + ')' })));
+    add('ElevenLabs voices', (list.eleven || []).map((e) => ({ value: 'el:' + e.id, label: e.name + (e.category === 'cloned' ? ' (cloned)' : '') })));
+    if (v.engine === 'eleven' && v.elevenVoiceId && !(list.eleven || []).some((e) => e.id === v.elevenVoiceId)) add('Custom', [{ value: 'el:' + v.elevenVoiceId, label: (v.elevenVoiceName || 'Custom voice') + ' (' + v.elevenVoiceId.slice(0, 8) + '\u2026)' }]);
+  }
+  $('voicePick').addEventListener('change', async (e) => {
+    const [kind, id] = [e.target.value.slice(0, e.target.value.indexOf(':')), e.target.value.slice(e.target.value.indexOf(':') + 1)];
+    const label = e.target.selectedOptions[0] ? e.target.selectedOptions[0].textContent : '';
+    D = Object.assign(D, await call(F.setVoice(kind === 'el' ? { engine: 'eleven', elevenVoiceId: id, elevenVoiceName: label } : { engine: 'mac', macVoice: id })));
+    toast('Voice changed');
+  });
+  $('voiceTest').addEventListener('click', () => say('Namaste! I\u2019m Chota Sarth. Ask me anything, or tell me what to do.', true));
+  $('elevenForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try { D = Object.assign(D, await call(F.setElevenKey($('s-eleven').value))); $('s-eleven').value = ''; $('elevenStatus').textContent = D.hasEleven ? 'ElevenLabs key saved. You can talk to me.' : 'Key removed.'; loadVoices(); }
+    catch (err) { $('elevenStatus').textContent = err.message; }
+  });
+  $('voiceIdForm').addEventListener('submit', async (e) => {
+    e.preventDefault(); const id = $('s-voiceId').value.trim(); if (!id) return;
+    D = Object.assign(D, await call(F.setVoice({ engine: 'eleven', elevenVoiceId: id, elevenVoiceName: 'Custom voice' }))); toast('Using that voice'); loadVoices();
+  });
   $('profileForm').addEventListener('submit', async (e) => {
     e.preventDefault(); D = Object.assign(D, await call(F.setProfile({ name: $('p-name').value, about: $('p-about').value }))); toast('Saved'); if (D.hasKey) go('chat');
   });
