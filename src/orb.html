@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'">
+<title>Chota Sarth</title>
+<style>
+html,body{margin:0;height:100%;background:transparent;overflow:hidden;user-select:none}
+#orb{position:absolute;inset:6px;border-radius:50%;background:#E8501A;border:0;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.35);display:grid;place-items:center;padding:0}
+#orb::after{content:"";width:34%;height:34%;border-radius:50%;background:#0D1320;transition:transform .25s}
+#orb:hover::after{transform:scale(.8)}
+#orb:focus-visible{outline:2px solid #fff;outline-offset:2px}
+@keyframes breathe{0%,100%{box-shadow:0 6px 18px rgba(0,0,0,.35),0 0 0 0 rgba(232,80,26,.45)}50%{box-shadow:0 6px 18px rgba(0,0,0,.35),0 0 0 8px rgba(232,80,26,0)}}
+#orb{animation:breathe 4s ease-in-out infinite}
+@media (prefers-reduced-motion: reduce){#orb{animation:none}}
+</style>
+</head>
+<body>
+<button id="orb" aria-label="Open Chota Sarth"></button>
+<script src="orb.js"></script>
+</body>
+</html>
