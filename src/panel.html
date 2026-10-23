@@ -69,6 +69,21 @@ textarea{min-height:80px;resize:vertical}
 .toast{position:fixed;left:50%;bottom:70px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:8px 14px;border-radius:10px;opacity:0;transition:opacity .2s;pointer-events:none}
 .toast.show{opacity:1}
 [hidden]{display:none !important}
+.sub{display:flex;gap:4px;margin:2px 0 6px}
+.sub button{border:1px solid var(--line);background:transparent;color:var(--soft);border-radius:999px;padding:5px 11px;cursor:pointer;font-weight:600;font-size:12px}
+.sub button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.gv{display:none}.gv.on{display:block}
+.act{font-size:12px;padding:6px 10px;border-radius:10px;background:var(--hair);color:var(--soft);margin-top:6px;white-space:pre-wrap}
+.act.done{background:var(--ok-bg);color:var(--ok)}.act.failed{background:var(--miss-bg);color:var(--miss)}
+.approve{align-self:stretch;border:2px solid var(--signal);background:var(--card);border-radius:14px;padding:12px}
+.approve .t{white-space:pre-wrap;margin:4px 0 10px}
+.mem{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;padding:9px 10px;border-radius:10px;background:var(--card);border:1px solid var(--line);margin-top:6px}
+.mem .k{font-size:11px;font-weight:700;color:var(--signal);text-transform:capitalize}
+.mem button{border:0;background:transparent;color:var(--soft);cursor:pointer;font-size:15px;width:28px;height:28px;border-radius:8px}
+.mem button:hover{background:var(--hair);color:var(--ink)}
+.hint{font-size:11px;color:var(--soft);padding:0 14px 10px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.chips button{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:6px 10px;cursor:pointer;font-size:12px;color:var(--ink)}
 </style>
 </head>
 <body>
@@ -78,45 +93,69 @@ textarea{min-height:80px;resize:vertical}
     <button id="close" aria-label="Hide Chota Sarth" title="Hide (⌥ Space)">✕</button>
   </div>
   <nav role="tablist" aria-label="Chota Sarth">
-    <button role="tab" data-v="ask" aria-selected="true">Ask</button>
-    <button role="tab" data-v="screen" aria-selected="false">Screen</button>
-    <button role="tab" data-v="optics" aria-selected="false">Visibility</button>
-    <button role="tab" data-v="approvals" aria-selected="false">Approvals<span class="n" id="pendN" hidden></span></button>
+    <button role="tab" data-v="chat" aria-selected="true">Chat</button>
+    <button role="tab" data-v="today" aria-selected="false">Today</button>
+    <button role="tab" data-v="memory" aria-selected="false">Memory</button>
+    <button role="tab" data-v="grow" aria-selected="false">Grow<span class="n" id="pendN" hidden></span></button>
     <button role="tab" data-v="setup" aria-selected="false">Setup</button>
   </nav>
 
   <main>
-    <section class="v on" id="v-ask">
-      <div class="card" id="today"></div>
-      <div class="chat" id="chat" aria-live="polite"></div>
-      <div id="askErr"></div>
+    <section class="v on" id="v-chat">
+      <div class="chat" id="talk" aria-live="polite"></div>
+      <div class="chips" id="starters">
+        <button data-q="What’s on my day?">What’s on my day?</button>
+        <button data-q="Remind me to call Gurmeet tomorrow at 10">Remind me…</button>
+        <button data-q="What’s on my screen? Explain it simply.">Explain my screen</button>
+        <button data-q="Find my latest GST invoice">Find a file</button>
+      </div>
+      <div id="talkErr"></div>
     </section>
 
-    <section class="v" id="v-screen">
+    <section class="v" id="v-today">
+      <h2 id="todayTitle">Today</h2>
+      <button class="btn primary big" id="briefMe" style="margin-top:8px">Brief me on my day</button>
+      <div class="card" id="todayMem"></div>
+    </section>
+
+    <section class="v" id="v-memory">
+      <h2>What I remember</h2>
+      <p class="muted" style="margin:0">Tell me things in Chat (“remember…”), and I keep them here. Delete anything that’s wrong.</p>
+      <div id="memList"></div>
+    </section>
+
+    <section class="v" id="v-grow">
+      <div class="sub" role="group" aria-label="Grow">
+        <button data-g="g-optics" aria-pressed="true">Visibility</button>
+        <button data-g="g-screen" aria-pressed="false">Find people</button>
+        <button data-g="g-approvals" aria-pressed="false">Approvals</button>
+        <button data-g="g-product" aria-pressed="false">Product</button>
+      </div>
+<div class="gv" id="g-screen">
       <h2>Read my screen</h2>
       <p class="muted" style="margin:0">Open a Reddit, X or LinkedIn thread, a competitor’s site or a search page, then press the button. Chota Sarth looks once, only when you ask.</p>
       <button class="btn primary big" id="readScreen" style="margin-top:12px">Read my screen</button>
       <div class="status" id="scStatus" aria-live="polite"></div>
       <div id="scErr"></div>
       <div id="scResult"></div>
-    </section>
+    </div>
 
-    <section class="v" id="v-optics">
+    <div class="gv on" id="g-optics">
       <h2>Am I being found?</h2>
       <p class="muted" style="margin:0">Eight buyer questions, answered fresh by an AI assistant that hasn’t been told about you.</p>
       <button class="btn primary big" id="runOptics" style="margin-top:12px">Run the check</button>
       <div class="status" id="opStatus" aria-live="polite"></div>
       <div id="opErr"></div>
       <div id="opResult"></div>
-    </section>
+    </div>
 
-    <section class="v" id="v-approvals">
+    <div class="gv" id="g-approvals">
       <h2>Approvals</h2>
       <p class="muted" style="margin:0">Edit, approve and copy. Chota Sarth never posts or sends anything for you.</p>
       <div id="drafts"></div>
-    </section>
+    </div>
 
-    <section class="v" id="v-setup">
+      <div class="gv" id="g-product">
       <h2>Your product</h2>
       <form id="setupForm">
         <label for="s-name">Product name</label><input type="text" id="s-name" required>
@@ -125,6 +164,16 @@ textarea{min-height:80px;resize:vertical}
         <label for="s-comp">Competitors <small>(comma separated)</small></label><input type="text" id="s-comp">
         <label for="s-voice">How you write <small>(paste a post of yours)</small></label><textarea id="s-voice"></textarea>
         <div class="row" style="margin-top:12px"><button class="btn primary" type="submit">Save product</button></div>
+      </form>
+      </div>
+    </section>
+
+    <section class="v" id="v-setup">
+      <h2>About you</h2>
+      <form id="profileForm">
+        <label for="p-name">Your name</label><input type="text" id="p-name" placeholder="e.g. Ujjwal">
+        <label for="p-about">Anything I should always know <small>(work, family, how you like replies)</small></label><textarea id="p-about" placeholder="e.g. I run Goury spare parts in Khanna. Reply in Hinglish. My supplier is Eastern engineers."></textarea>
+        <div class="row" style="margin-top:12px"><button class="btn primary" type="submit">Save</button></div>
       </form>
       <div class="card">
         <h2>Anthropic API key</h2>
@@ -150,10 +199,11 @@ textarea{min-height:80px;resize:vertical}
   </main>
 
   <form class="ask" id="askForm">
-    <label for="askInput" class="muted" style="position:absolute;left:-9999px">Ask Chota Sarth</label>
-    <input type="text" id="askInput" placeholder="Ask about getting seen…" autocomplete="off">
-    <button class="btn primary" type="submit">Ask</button>
+    <label for="askInput" class="muted" style="position:absolute;left:-9999px">Talk to Chota Sarth</label>
+    <input type="text" id="askInput" placeholder="Ask or tell me anything…" autocomplete="off">
+    <button class="btn primary" type="submit">Send</button>
   </form>
+  <div class="hint" id="hint">Press Fn twice to speak instead of typing.</div>
   <div class="toast" id="toast" role="status"></div>
 <script src="panel.js"></script>
 </body>
