@@ -1,4 +1,4 @@
-// Chota Sarth: an always-on Mac companion that helps founders get their product found.
+// Chota Sarth: an always-on personal assistant for the Mac.
 // Main process: owns the windows, the global shortcut, screen capture, storage and
 // every call to Claude. The renderer pages never see the API key.
 const {
@@ -7,6 +7,7 @@ const {
 } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const assistant = require('./assistant.js');
 
 const isMac = process.platform === 'darwin';
 const FAKE_AI = process.env.SARTH_FAKE_AI === '1'; // for testing without an API key
@@ -19,7 +20,7 @@ let tray = null;
 
 // ---------------- storage (one JSON file in the app's private folder) ----------------
 const dataFile = () => path.join(app.getPath('userData'), 'chota-sarth.json');
-const defaultData = () => ({ v: 1, project: null, drafts: [], runs: [], questions: [], chat: [], orb: null, apiKeyEnc: null });
+const defaultData = () => ({ v: 1, profile: { name: '', about: '' }, memory: [], talk: [], project: null, drafts: [], runs: [], questions: [], chat: [], orb: null, apiKeyEnc: null });
 let data = null;
 function loadData() {
   try { data = Object.assign(defaultData(), JSON.parse(fs.readFileSync(dataFile(), 'utf8'))); }
@@ -74,6 +75,40 @@ async function claude({ system, prompt, image, model = 'smart', maxTokens = 1500
   const text = (body.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('\n');
   return json ? parseJSON(text) : text;
 }
+// Full Messages API call with tools, used by the personal assistant.
+async function claudeRaw({ system, messages, tools }) {
+  if (FAKE_AI) return fakeAgent(messages);
+  const key = getKey();
+  if (!key) throw Object.assign(new Error('Add your Anthropic API key in Setup first.'), { code: 'no_key' });
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
+    body: JSON.stringify({ model: MODELS.smart, max_tokens: 1500, system, messages, tools }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = (body.error && body.error.message) || ('HTTP ' + res.status);
+    throw Object.assign(new Error(res.status === 401 ? 'Anthropic rejected the API key. Check it in Setup.' : msg), { code: 'api_' + res.status });
+  }
+  return body;
+}
+function fakeAgent(messages) {
+  // Test stand-in: picks a tool from simple keywords, then replies once the tool has run.
+  const last = messages[messages.length - 1];
+  if (Array.isArray(last.content) && last.content[0] && last.content[0].type === 'tool_result') {
+    const r = last.content[0].content; const txt = Array.isArray(r) ? 'I can see your screen: a spreadsheet of parts.' : String(r);
+    return { stop_reason: 'end_turn', content: [{ type: 'text', text: /said no/.test(txt) ? 'Okay, I won’t. Want me to change anything?' : 'Done. ' + txt }] };
+  }
+  const q = String(last.content).toLowerCase();
+  const use = (name, input) => ({ stop_reason: 'tool_use', content: [{ type: 'text', text: 'On it.' }, { type: 'tool_use', id: 't' + Date.now(), name, input }] });
+  if (q.includes('remind')) return use('create_reminder', { title: 'Call Gurmeet about payment', due: new Date(Date.now() + 86400000).toISOString().slice(0, 11) + '10:00' });
+  if (q.includes('whatsapp')) return use('draft_whatsapp', { text: 'Namaste ji, a gentle reminder about the pending payment of ₹63,991. Thank you!' });
+  if (q.includes('my day') || q.includes('today')) return use('get_today', {});
+  if (q.includes('remember')) return use('remember', { kind: 'person', text: 'Gurmeet Singh (Khanna) usually pays on the 10th' });
+  if (q.includes('screen')) return use('look_at_screen', {});
+  if (q.includes('find')) return use('search_files', { query: 'GST invoice' });
+  return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Happy to help. Ask me to remind you, plan your day, write a message, find a file or explain your screen.' }] };
+}
 function fakeAI({ prompt, image, json }) {
   // Deterministic stand-in so the whole app can be tried without a key (SARTH_FAKE_AI=1).
   if (!json) return 'Here is a thought: answer the exact question buyers type, in plain words, and say who it is for.';
@@ -87,7 +122,7 @@ function productBlock() {
   const p = data.project; if (!p) return 'The founder has not described their product yet.';
   return `Product: ${p.name}\nWhat it does: ${p.desc}\nWho buys it: ${p.buyer}` + (p.comp && p.comp.length ? `\nCompetitors: ${p.comp.join(', ')}` : '') + (p.voice ? `\nThe founder writes like this:\n"""${p.voice.slice(0, 1200)}"""` : '');
 }
-const SYSTEM = 'You are Chota Sarth, a calm, practical companion that helps a startup founder get their product found. You never post, send or buy anything yourself: you only draft, and the founder approves. Be specific and brief. Write in plain words.';
+const SYSTEM = 'You are Chota Sarth, a calm, practical assistant. Here you are helping the person get their product found. You never post, send or buy anything yourself: you only draft, and the founder approves. Be specific and brief. Write in plain words.';
 
 // ---------------- windows ----------------
 const ORB = 64;
@@ -180,6 +215,35 @@ ipcMain.handle('login:get', wrap(() => app.getLoginItemSettings().openAtLogin));
 ipcMain.handle('login:set', wrap((on) => { app.setLoginItemSettings({ openAtLogin: !!on, openAsHidden: true }); return app.getLoginItemSettings().openAtLogin; }));
 ipcMain.handle('open:privacy', wrap(() => shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture')));
 
+// ---------- personal assistant ----------
+const pendingApprovals = new Map();
+function approve(name, text) {
+  return new Promise((resolve) => {
+    const id = 'a' + Date.now() + Math.random().toString(36).slice(2, 6);
+    pendingApprovals.set(id, resolve);
+    if (!panelWin.isVisible()) togglePanel(true);
+    panelWin.webContents.send('approve:request', { id, name, text });
+    setTimeout(() => { if (pendingApprovals.has(id)) { pendingApprovals.delete(id); resolve(false); } }, 5 * 60 * 1000);
+  });
+}
+ipcMain.handle('approve:answer', wrap((id, ok) => { const r = pendingApprovals.get(id); if (r) { pendingApprovals.delete(id); r(!!ok); } return true; }));
+function memoryText() { return data.memory.slice(-80).map((m) => `${m.id}: ${m.kind}: ${m.text}`).join('\n'); }
+ipcMain.handle('assistant:chat', wrap(async (question) => {
+  const history = data.talk.slice(-12);
+  const out = await assistant.chat(question, history, {
+    claudeRaw, approve, fake: FAKE_AI, profile: data.profile || {}, memoryText: memoryText(),
+    remember: (kind, text) => { const m = { id: 'm' + Date.now().toString(36), kind, text, at: Date.now() }; data.memory.push(m); saveData(); return 'Saved as ' + m.id; },
+    forget: (id) => { const n = data.memory.length; data.memory = data.memory.filter((m) => m.id !== id); saveData(); return n !== data.memory.length ? 'Forgotten.' : 'No memory with that id.'; },
+    captureScreen,
+  });
+  data.talk.push({ role: 'user', text: question, at: Date.now() }, { role: 'assistant', text: out.text, at: Date.now(), actions: out.actions });
+  data.talk = data.talk.slice(-60); saveData();
+  return out;
+}));
+ipcMain.handle('memory:delete', wrap((id) => { data.memory = data.memory.filter((m) => m.id !== id); saveData(); return publicData(); }));
+ipcMain.handle('profile:set', wrap((p) => { data.profile = { name: String(p.name || '').trim(), about: String(p.about || '').trim() }; saveData(); return publicData(); }));
+ipcMain.handle('talk:clear', wrap(() => { data.talk = []; saveData(); return publicData(); }));
+
 ipcMain.handle('ask', wrap(async (question) => {
   data.chat.push({ role: 'user', text: question, at: Date.now() });
   const history = data.chat.slice(-10).map((m) => (m.role === 'user' ? 'Founder: ' : 'Chota Sarth: ') + m.text).join('\n');
@@ -238,7 +302,7 @@ app.whenReady().then(() => {
   createOrb(); createPanel(); createTray();
   const ok = globalShortcut.register('Alt+Space', () => togglePanel());
   if (!ok) globalShortcut.register('CommandOrControl+Shift+Space', () => togglePanel());
-  if (!data.project) setTimeout(() => togglePanel(true), 600);   // first run: open setup
+  if (!getKey() && !FAKE_AI) setTimeout(() => togglePanel(true), 600);   // first run: open setup
 });
 
 // Orb: drag to move, click to open the panel.
