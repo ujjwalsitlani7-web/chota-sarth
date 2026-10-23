@@ -13,8 +13,15 @@ Click it or press **⌥ Space**, then just ask:
 - “What’s on my screen? Explain it” → it looks once and helps
 - “Remember Gurmeet pays on the 10th” → kept in **Memory** and used later
 
+### Talk to it like Siri
+
+- Press **⌃ ⌥ Space** (Control + Option + Space) anywhere, **press and hold the orb**, or tap the **microphone** in the chat box.
+- The orb glows red while it listens and stops by itself when you stop talking. It answers out loud.
+- **Voices:** it speaks with your Mac’s voices out of the box (pick one in *Setup › Voice*, Indian English voices are listed first).
+- **Understanding your voice** uses ElevenLabs speech-to-text: add your ElevenLabs API key in *Setup › Voice*.
+- **A custom voice, like a friend’s:** in ElevenLabs go to *Voices › Add voice*, clone it from recordings of your friend, then paste its **Voice ID** in *Setup › Voice › A custom voice*. Only clone someone’s voice with their clear permission.
+
 **It asks before it changes anything.** Reminders, events, opening messages, files and music all show an “I’d like to…” card with **Do it / Cancel**. It never sends a message or email itself.
-To talk instead of typing, press **Fn twice** in the chat box (macOS dictation). Turn on *Read answers out loud* in Setup to hear replies.
 
 ### Grow (for founders)
 The **Grow** tab checks whether AI assistants name your product, finds people on a thread who have your problem, and drafts posts and replies for you to approve:
@@ -37,6 +44,7 @@ The **Grow** tab checks whether AI assistants name your product, finds people on
 ### Permissions the Mac will ask for
 
 The first time Chota Sarth does each kind of thing, macOS asks once:
+- **Microphone**: needed to talk to it.
 - **Reminders / Calendar**: “wants to control Reminders/Calendar” → click **OK**.
 - **Screen Recording**: needed for “what’s on my screen”.
 
@@ -66,6 +74,7 @@ Every feature works with sample answers, so you can see the whole flow before ad
 ## How it is built
 
 - `src/assistant.js`: the personal assistant: Claude with Mac tools (Reminders, Calendar, WhatsApp, Mail, Spotlight, apps, music, memory, screen), and the ask-before-acting rule.
+- `src/voice.js`: listening and speaking: Mac voices, and ElevenLabs speech-to-text and voices (including cloned ones).
 - `src/main.js`: the app core. Floating orb and panel windows, the ⌥ Space shortcut, the menu-bar icon, screen capture, saved data, and every call to Claude (`claude-sonnet-5-5` for reading the screen and writing, `claude-haiku-5-5` for the quick visibility answers).
 - `src/preload.js`: the only bridge the windows can use. Pages never see the API key or the file system.
 - `src/panel.html` / `panel.js`: the companion window.
@@ -77,5 +86,5 @@ Every feature works with sample answers, so you can see the whole flow before ad
 - Check ChatGPT and Google answers too, not just Claude.
 - Find Reddit and X posts automatically.
 - A Monday scorecard notification.
-- Voice input ("Hey Chota Sarth").
+- A wake word ("Hey Chota Sarth") so it listens without a key press.
 - Sign and notarise the app for one-click installs.
