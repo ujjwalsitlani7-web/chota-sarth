@@ -26,7 +26,8 @@
       ],
       "extendInfo": {
         "LSUIElement": true,
-        "NSScreenCaptureUsageDescription": "Chota Sarth reads your screen only when you press Read my screen, to find people asking about your problem and draft replies."
+        "NSScreenCaptureUsageDescription": "Chota Sarth reads your screen only when you press Read my screen, to find people asking about your problem and draft replies.",
+        "NSMicrophoneUsageDescription": "Chota Sarth listens only while you hold the orb or press Control-Option-Space, so you can talk to it."
       }
     }
   }
