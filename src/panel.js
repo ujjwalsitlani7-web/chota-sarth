@@ -1,9 +1,9 @@
-// Chota Sarth panel: Ask, Screen, Visibility, Approvals, Setup.
+// Chota Sarth panel: Chat (personal assistant), Today, Memory, Grow, Setup.
 (function () {
   'use strict';
   const F = window.findable;
   const $ = (id) => document.getElementById(id);
-  let D = { project: null, drafts: [], runs: [], questions: [], chat: [], hasKey: false };
+  let D = { profile: {}, memory: [], talk: [], project: null, drafts: [], runs: [], questions: [], chat: [], hasKey: false };
   let speak = localStorage.getItem('sarth.speak') === '1';
 
   function el(tag, props, kids) {
@@ -19,51 +19,95 @@
   const uid = () => Math.random().toString(36).slice(2, 10);
 
   // ---------- tabs ----------
-  let view = 'ask';
+  let view = 'chat';
   function go(v) {
     view = v;
     document.querySelectorAll('nav button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.v === v)));
     document.querySelectorAll('.v').forEach((s) => s.classList.toggle('on', s.id === 'v-' + v));
-    $('askForm').hidden = v !== 'ask';
-    if (v === 'approvals') renderDrafts();
-    if (v === 'optics') renderOptics();
-    if (v === 'ask') renderAsk();
+    $('askForm').hidden = v !== 'chat'; $('hint').hidden = v !== 'chat';
+    if (v === 'chat') renderTalk();
+    if (v === 'today') renderToday();
+    if (v === 'memory') renderMemory();
+    if (v === 'grow') { renderDrafts(); renderOptics(); fillProduct(); }
     if (v === 'setup') fillSetup();
   }
+  function goGrow(id) {
+    document.querySelectorAll('.sub button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.g === id)));
+    document.querySelectorAll('.gv').forEach((g) => g.classList.toggle('on', g.id === id));
+  }
+  document.querySelector('.sub').addEventListener('click', (e) => { const b = e.target.closest('button[data-g]'); if (b) goGrow(b.dataset.g); });
   document.querySelector('nav').addEventListener('click', (e) => { const b = e.target.closest('button[data-v]'); if (b) go(b.dataset.v); });
   $('close').addEventListener('click', () => F.hide());
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') F.hide(); });
 
   function renderBadge() { const n = D.drafts.filter((d) => d.status === 'pending').length; $('pendN').hidden = !n; $('pendN').textContent = n; }
 
-  // ---------- Ask (home) ----------
-  function renderAsk() {
-    const t = $('today'); t.innerHTML = '';
-    if (!D.project) {
-      t.appendChild(el('h2', { text: 'Hi, I’m Chota Sarth, your sidekick for getting seen.' }));
-      t.appendChild(el('p', { cls: 'muted', text: 'I help your product get found. Tell me what you’re building in Setup, add your API key, and I’ll check where you’re invisible.' }));
-      const b = el('button', { cls: 'btn primary', text: 'Go to Setup' }); b.onclick = () => go('setup'); t.appendChild(b); return;
+  // ---------- Chat: the personal assistant ----------
+  let busy = false;
+  function bubble(role, text) { return el('div', { cls: 'msg ' + (role === 'user' ? 'me' : 'bot'), text }); }
+  function actionLine(a) { return el('div', { cls: 'act ' + (a.status === 'done' ? 'done' : a.status === 'failed' ? 'failed' : ''), text: (a.status === 'done' ? '✓ ' : a.status === 'failed' ? '✕ ' : '– ') + a.label + (a.error ? '\n' + a.error : '') + (a.status === 'declined' ? ' (you said no)' : '') }); }
+  function renderTalk() {
+    const c = $('talk'); c.innerHTML = '';
+    if (!D.talk.length) {
+      c.appendChild(el('div', { cls: 'msg bot', text: (D.profile && D.profile.name ? 'Hi ' + D.profile.name + '! ' : 'Hi! ') + 'I’m Chota Sarth. I can set reminders, add calendar events, plan your day, write WhatsApp messages and emails, find files, open apps, play music, explain your screen, and remember things for you. Before I change anything, I’ll ask.' }));
     }
-    const last = D.runs[D.runs.length - 1];
-    const pend = D.drafts.filter((d) => d.status === 'pending').length;
-    t.appendChild(el('h2', { text: 'Your week' }));
-    const lines = [
-      last ? `Named in ${last.named} of ${last.total} AI answers on your last check.` : 'No visibility check yet. Try the Visibility tab.',
-      pend ? `${pend} draft${pend > 1 ? 's' : ''} waiting for your yes.` : 'Nothing waiting for approval.',
-      D.hasKey ? 'Open any thread and use Screen to find people asking.' : 'Add your Anthropic API key in Setup to turn me on.',
-    ];
-    lines.forEach((l) => t.appendChild(el('div', { cls: 'muted', text: l })));
-    const c = $('chat'); c.innerHTML = '';
-    D.chat.slice(-12).forEach((m) => c.appendChild(el('div', { cls: 'msg ' + (m.role === 'user' ? 'me' : 'bot'), text: m.text })));
+    D.talk.slice(-30).forEach((m) => {
+      c.appendChild(bubble(m.role, m.text));
+      (m.actions || []).filter((a) => a.name !== 'remember' || a.status === 'done').forEach((a) => c.appendChild(actionLine(a)));
+    });
+    $('starters').hidden = D.talk.length > 0;
+    c.lastChild && c.lastChild.scrollIntoView({ block: 'end' });
   }
-  $('askForm').addEventListener('submit', async (e) => {
-    e.preventDefault(); const q = $('askInput').value.trim(); if (!q) return;
-    $('askInput').value = ''; showErr('askErr', '');
-    D.chat.push({ role: 'user', text: q }); renderAsk();
-    const thinking = el('div', { cls: 'msg bot muted', text: 'Thinking…' }); $('chat').appendChild(thinking); thinking.scrollIntoView({ block: 'end' });
-    try { const a = await call(F.ask(q)); D.chat.push({ role: 'sarth', text: a }); renderAsk(); say(a); $('chat').lastChild && $('chat').lastChild.scrollIntoView({ block: 'end' }); }
-    catch (err) { thinking.remove(); D.chat.pop(); showErr('askErr', err.message); }
+  async function send(q) {
+    if (!q || busy) return; busy = true; showErr('talkErr', '');
+    go('chat');
+    D.talk.push({ role: 'user', text: q }); renderTalk();
+    const thinking = el('div', { cls: 'msg bot muted', text: 'Thinking…' }); $('talk').appendChild(thinking); thinking.scrollIntoView({ block: 'end' });
+    try {
+      const out = await call(F.chat(q));
+      D.talk.push({ role: 'assistant', text: out.text, actions: out.actions });
+      try { D = Object.assign(D, await call(F.getData())); } catch { }
+      renderTalk(); say(out.text);
+    } catch (err) { thinking.remove(); D.talk.pop(); renderTalk(); showErr('talkErr', err.message); }
+    busy = false;
+  }
+  $('askForm').addEventListener('submit', (e) => { e.preventDefault(); const q = $('askInput').value.trim(); $('askInput').value = ''; send(q); });
+  $('starters').addEventListener('click', (e) => { const b = e.target.closest('button[data-q]'); if (b) send(b.dataset.q); });
+
+  // "I'd like to…" cards: nothing that changes something happens without a yes.
+  F.onApproval((req) => {
+    go('chat');
+    const card = el('div', { cls: 'approve' }, [el('b', { text: 'I’d like to:' }), el('div', { cls: 't', text: req.text })]);
+    const yes = el('button', { cls: 'btn primary', text: 'Do it' }), no = el('button', { cls: 'btn', text: 'Cancel' });
+    const done = (ok) => { yes.disabled = no.disabled = true; card.remove(); F.answerApproval(req.id, ok); };
+    yes.onclick = () => done(true); no.onclick = () => done(false);
+    card.appendChild(el('div', { cls: 'row' }, [yes, no]));
+    const thinking = [...$('talk').children].find((x) => x.textContent === 'Thinking…');
+    $('talk').insertBefore(card, thinking || null); card.scrollIntoView({ block: 'end' }); yes.focus();
+    say('Can I ' + req.text.split('\n')[0].replace(/^./, (c) => c.toLowerCase()) + '?');
   });
+
+  // ---------- Today ----------
+  function renderToday() {
+    $('todayTitle').textContent = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' });
+    const box = $('todayMem'); box.innerHTML = '';
+    const keep = D.memory.filter((m) => m.kind === 'promise' || m.kind === 'plan');
+    box.appendChild(el('h2', { text: 'Plans and promises' }));
+    if (!keep.length) box.appendChild(el('div', { cls: 'muted', text: 'Nothing yet. Tell me in Chat, e.g. “remember I promised to send the price list to Krishna Agro on Friday.”' }));
+    keep.slice(-12).reverse().forEach((m) => box.appendChild(el('div', { cls: 'q' }, [el('div', { text: m.text }), el('span', { cls: 'pill ' + (m.kind === 'promise' ? 'warm' : 'wait'), text: m.kind })])));
+  }
+  $('briefMe').addEventListener('click', () => send('Brief me on my day: check my calendar and reminders for today, and include any plans or promises you remember. Keep it short.'));
+
+  // ---------- Memory ----------
+  function renderMemory() {
+    const box = $('memList'); box.innerHTML = '';
+    if (!D.memory.length) { box.appendChild(el('div', { cls: 'empty', text: 'I don’t remember anything yet.' })); return; }
+    D.memory.slice().reverse().forEach((m) => {
+      const del = el('button', { 'aria-label': 'Forget this', title: 'Forget', text: '✕' });
+      del.onclick = async () => { D = Object.assign(D, await call(F.deleteMemory(m.id))); renderMemory(); };
+      box.appendChild(el('div', { cls: 'mem' }, [el('span', { cls: 'k', text: m.kind }), el('div', { text: m.text }), del]));
+    });
+  }
 
   // ---------- Screen ----------
   $('readScreen').addEventListener('click', async () => {
@@ -79,7 +123,7 @@
         people.forEach((p) => D.drafts.unshift({ id: uid(), engine: 'outreach', platform: 'Reply', who: p.who, intent: p.intent, ctx: p.said, text: p.reply, status: 'pending', at: Date.now() }));
         saveDrafts();
         box.appendChild(el('p', { cls: 'muted', text: 'Replies are drafted and waiting in Approvals.' }));
-        const b = el('button', { cls: 'btn primary', text: 'Review replies' }); b.onclick = () => go('approvals'); box.appendChild(b);
+        const b = el('button', { cls: 'btn primary', text: 'Review replies' }); b.onclick = () => goGrow('g-approvals'); box.appendChild(b);
         say(people.length + ' people here have your problem. Replies are waiting for you.');
       }
       (r.tips || []).forEach((tip) => box.appendChild(el('div', { cls: 'tip', text: tip })));
@@ -116,7 +160,7 @@
     });
   }
   $('runOptics').addEventListener('click', async () => {
-    if (!D.project) { go('setup'); return; }
+    if (!D.project) { goGrow('g-product'); return; }
     const btn = $('runOptics'); btn.disabled = true; showErr('opErr', '');
     try {
       $('opStatus').textContent = 'Writing the questions your buyers ask…';
@@ -158,29 +202,35 @@
   }
 
   // ---------- Setup ----------
-  function fillSetup() {
+  function fillProduct() {
     const p = D.project || {};
     $('s-name').value = p.name || ''; $('s-desc').value = p.desc || ''; $('s-buyer').value = p.buyer || '';
     $('s-comp').value = (p.comp || []).join(', '); $('s-voice').value = p.voice || '';
+  }
+  function fillSetup() {
+    $('p-name').value = (D.profile && D.profile.name) || ''; $('p-about').value = (D.profile && D.profile.about) || '';
     $('keyStatus').textContent = D.hasKey ? 'A key is saved.' : 'No key saved yet.';
     $('speak').checked = speak;
     F.getLogin().then((r) => { if (r.ok) $('atLogin').checked = !!r.value; });
   }
+  $('profileForm').addEventListener('submit', async (e) => {
+    e.preventDefault(); D = Object.assign(D, await call(F.setProfile({ name: $('p-name').value, about: $('p-about').value }))); toast('Saved'); if (D.hasKey) go('chat');
+  });
   $('setupForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const p = { name: $('s-name').value.trim(), desc: $('s-desc').value.trim(), buyer: $('s-buyer').value.trim(), comp: $('s-comp').value.split(',').map((s) => s.trim()).filter(Boolean), voice: $('s-voice').value.trim() };
-    D = Object.assign(D, await call(F.setProject(p))); $('proj').textContent = D.project.name; toast('Saved'); go(D.hasKey ? 'optics' : 'setup');
+    D = Object.assign(D, await call(F.setProject(p))); toast('Product saved'); goGrow('g-optics');
   });
   $('keyForm').addEventListener('submit', async (e) => {
     e.preventDefault();
-    try { D = Object.assign(D, await call(F.setKey($('s-key').value))); $('s-key').value = ''; $('keyStatus').textContent = D.hasKey ? 'Key saved securely.' : 'Key removed.'; }
+    try { D = Object.assign(D, await call(F.setKey($('s-key').value))); $('s-key').value = ''; $('keyStatus').textContent = D.hasKey ? 'Key saved securely. You can start chatting.' : 'Key removed.'; }
     catch (err) { $('keyStatus').textContent = err.message; }
   });
   $('atLogin').addEventListener('change', async (e) => { const r = await F.setLogin(e.target.checked); if (r.ok) { e.target.checked = !!r.value; toast(r.value ? 'Chota Sarth will open when your Mac starts' : 'Won’t open at login'); } });
   $('speak').addEventListener('change', (e) => { speak = e.target.checked; localStorage.setItem('sarth.speak', speak ? '1' : '0'); });
 
   // ---------- start ----------
-  async function refresh() { try { D = await call(F.getData()); } catch { } $('proj').textContent = D.project ? D.project.name : ''; renderBadge(); go(D.project ? view : 'setup'); }
-  F.onShown(() => { refresh(); setTimeout(() => { if (view === 'ask') $('askInput').focus(); }, 50); });
+  async function refresh() { try { D = await call(F.getData()); } catch { } $('proj').textContent = (D.profile && D.profile.name) || ''; renderBadge(); go(D.hasKey ? view : 'setup'); }
+  F.onShown(() => { refresh(); setTimeout(() => { if (view === 'chat') $('askInput').focus(); }, 50); });
   refresh();
 })();
