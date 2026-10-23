@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:">
+<title>Chota Sarth</title>
+<style>
+:root{
+  --bg:#0C1320; --card:#141E2E; --ink:#E9EEF5; --soft:#9AA8BA; --line:#26344A; --hair:#1D2939;
+  --signal:#FF6A33; --on-signal:#1A0A03; --ok:#5FD39A; --ok-bg:#12291F; --miss:#FF8A6E; --miss-bg:#2E1612; --warm:#FFC266; --warm-bg:#2B210F;
+  color-scheme:dark;
+}
+@media (prefers-color-scheme: light){:root{
+  --bg:#EDF1F5; --card:#FFFFFF; --ink:#0E1A2B; --soft:#55657A; --line:#D5DDE7; --hair:#E4E9F0;
+  --signal:#E8501A; --on-signal:#FFFFFF; --ok:#167A4C; --ok-bg:#E3F4EA; --miss:#B4321A; --miss-bg:#FBE7E1; --warm:#8A5A00; --warm-bg:#FFF2D6; color-scheme:light;}}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',system-ui,sans-serif;display:flex;flex-direction:column;overflow:hidden}
+button,input,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--signal);outline-offset:2px;border-radius:6px}
+.bar{-webkit-app-region:drag;display:flex;align-items:center;gap:10px;padding:14px 14px 10px 16px}
+.bar .logo{display:flex;align-items:center;gap:8px;font-weight:700;font-size:15px;letter-spacing:-.01em}
+.bar .logo i{width:18px;height:18px;border-radius:50%;background:var(--signal);position:relative;display:inline-block}
+.bar .logo i::after{content:"";position:absolute;inset:5px;border-radius:50%;background:var(--bg)}
+.bar .proj{margin-left:auto;color:var(--soft);font-size:12px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar button{-webkit-app-region:no-drag;width:30px;height:30px;border-radius:8px;border:0;background:transparent;color:var(--soft);cursor:pointer;font-size:16px}
+.bar button:hover{background:var(--hair);color:var(--ink)}
+nav{display:flex;gap:2px;padding:0 10px 10px;overflow-x:auto;scrollbar-width:none}
+nav::-webkit-scrollbar{display:none}
+nav button{border:0;background:transparent;color:var(--soft);padding:7px 10px;border-radius:8px;cursor:pointer;font-weight:600;white-space:nowrap}
+nav button[aria-selected="true"]{background:var(--card);color:var(--ink)}
+nav .n{display:inline-block;min-width:18px;padding:0 5px;margin-left:4px;border-radius:999px;background:var(--signal);color:var(--on-signal);font-size:11px;line-height:18px;text-align:center}
+main{flex:1;overflow-y:auto;padding:4px 14px 16px}
+.v{display:none}.v.on{display:block}
+h2{font-size:17px;margin:4px 0 4px;letter-spacing:-.01em}
+.muted{color:var(--soft)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-top:10px}
+label{display:block;font-weight:600;font-size:13px;margin:12px 0 5px}
+label small{font-weight:400;color:var(--soft)}
+input[type=text],input[type=password],textarea{width:100%;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:9px 11px;min-height:38px}
+textarea{min-height:80px;resize:vertical}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:36px;padding:0 14px;border-radius:10px;border:1px solid var(--line);background:var(--card);cursor:pointer;font-weight:600}
+.btn.primary{background:var(--signal);border-color:var(--signal);color:var(--on-signal)}
+.btn.big{width:100%;min-height:46px;font-size:15px}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.err{background:var(--miss-bg);color:var(--miss);padding:10px 12px;border-radius:10px;margin-top:10px}
+.status{color:var(--soft);font-size:13px;margin-top:8px;min-height:20px}
+.pill{font-size:11px;font-weight:600;padding:3px 8px;border-radius:999px;white-space:nowrap}
+.pill.ok{background:var(--ok-bg);color:var(--ok)}.pill.miss{background:var(--miss-bg);color:var(--miss)}.pill.wait{background:var(--hair);color:var(--soft)}.pill.warm{background:var(--warm-bg);color:var(--warm)}
+.chat{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.msg{padding:10px 12px;border-radius:12px;max-width:88%;white-space:pre-wrap}
+.msg.me{align-self:flex-end;background:var(--signal);color:var(--on-signal)}
+.msg.bot{align-self:flex-start;background:var(--card);border:1px solid var(--line)}
+.ask{display:flex;gap:8px;padding:10px 14px 14px;border-top:1px solid var(--hair)}
+.ask input{flex:1}
+.q{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:10px 12px;border-radius:10px;background:var(--bg);border:1px solid var(--hair);margin-top:6px}
+.q .who{font-size:12px;color:var(--soft)}
+.big{font-size:44px;font-weight:800;letter-spacing:-.04em;line-height:1}
+.big span{color:var(--soft)}
+.draft{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-top:10px}
+.draft.approved{border-color:var(--ok)}
+.draft .meta{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:12px;color:var(--soft);margin-bottom:6px}
+.draft .meta b{color:var(--ink)}
+.draft .ctx{font-size:12px;color:var(--soft);border-left:3px solid var(--line);padding-left:8px;margin:0 0 8px;white-space:pre-wrap}
+.draft textarea{min-height:90px}
+.empty{padding:20px;text-align:center;color:var(--soft);border:1px dashed var(--line);border-radius:12px;margin-top:10px}
+.tip{padding:10px 12px;border-radius:10px;background:var(--bg);border:1px solid var(--hair);margin-top:6px}
+.toast{position:fixed;left:50%;bottom:70px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:8px 14px;border-radius:10px;opacity:0;transition:opacity .2s;pointer-events:none}
+.toast.show{opacity:1}
+[hidden]{display:none !important}
+</style>
+</head>
+<body>
+  <div class="bar">
+    <div class="logo"><i aria-hidden="true"></i>Chota Sarth</div>
+    <div class="proj" id="proj"></div>
+    <button id="close" aria-label="Hide Chota Sarth" title="Hide (⌥ Space)">✕</button>
+  </div>
+  <nav role="tablist" aria-label="Chota Sarth">
+    <button role="tab" data-v="ask" aria-selected="true">Ask</button>
+    <button role="tab" data-v="screen" aria-selected="false">Screen</button>
+    <button role="tab" data-v="optics" aria-selected="false">Visibility</button>
+    <button role="tab" data-v="approvals" aria-selected="false">Approvals<span class="n" id="pendN" hidden></span></button>
+    <button role="tab" data-v="setup" aria-selected="false">Setup</button>
+  </nav>
+
+  <main>
+    <section class="v on" id="v-ask">
+      <div class="card" id="today"></div>
+      <div class="chat" id="chat" aria-live="polite"></div>
+      <div id="askErr"></div>
+    </section>
+
+    <section class="v" id="v-screen">
+      <h2>Read my screen</h2>
+      <p class="muted" style="margin:0">Open a Reddit, X or LinkedIn thread, a competitor’s site or a search page, then press the button. Chota Sarth looks once, only when you ask.</p>
+      <button class="btn primary big" id="readScreen" style="margin-top:12px">Read my screen</button>
+      <div class="status" id="scStatus" aria-live="polite"></div>
+      <div id="scErr"></div>
+      <div id="scResult"></div>
+    </section>
+
+    <section class="v" id="v-optics">
+      <h2>Am I being found?</h2>
+      <p class="muted" style="margin:0">Eight buyer questions, answered fresh by an AI assistant that hasn’t been told about you.</p>
+      <button class="btn primary big" id="runOptics" style="margin-top:12px">Run the check</button>
+      <div class="status" id="opStatus" aria-live="polite"></div>
+      <div id="opErr"></div>
+      <div id="opResult"></div>
+    </section>
+
+    <section class="v" id="v-approvals">
+      <h2>Approvals</h2>
+      <p class="muted" style="margin:0">Edit, approve and copy. Chota Sarth never posts or sends anything for you.</p>
+      <div id="drafts"></div>
+    </section>
+
+    <section class="v" id="v-setup">
+      <h2>Your product</h2>
+      <form id="setupForm">
+        <label for="s-name">Product name</label><input type="text" id="s-name" required>
+        <label for="s-desc">What it does, in one sentence</label><input type="text" id="s-desc" required>
+        <label for="s-buyer">Who buys it</label><input type="text" id="s-buyer" required>
+        <label for="s-comp">Competitors <small>(comma separated)</small></label><input type="text" id="s-comp">
+        <label for="s-voice">How you write <small>(paste a post of yours)</small></label><textarea id="s-voice"></textarea>
+        <div class="row" style="margin-top:12px"><button class="btn primary" type="submit">Save product</button></div>
+      </form>
+      <div class="card">
+        <h2>Anthropic API key</h2>
+        <p class="muted" style="margin:0">Stored encrypted on this Mac and sent only to Anthropic. Create one at console.anthropic.com.</p>
+        <form id="keyForm" class="row" style="margin-top:10px">
+          <label for="s-key" class="muted" style="margin:0;width:100%;font-weight:600">Key</label>
+          <input type="password" id="s-key" autocomplete="off" placeholder="sk-ant-…" style="flex:1">
+          <button class="btn" type="submit">Save key</button>
+        </form>
+        <div class="status" id="keyStatus"></div>
+      </div>
+      <div class="card">
+        <h2>Voice</h2>
+        <label class="row" style="font-weight:400;margin:0"><input type="checkbox" id="speak"> Read Chota Sarth’s answers out loud</label>
+      </div>
+      <div class="card">
+        <h2>Always on</h2>
+        <label class="row" style="font-weight:400;margin:0"><input type="checkbox" id="atLogin"> Open Chota Sarth when my Mac starts</label>
+        <p class="muted" style="margin:6px 0 0;font-size:12px">Works once Chota Sarth is installed in Applications.</p>
+      </div>
+      <div class="card"><h2>Shortcut</h2><p class="muted" style="margin:0">Press ⌥ Space anywhere to show or hide Chota Sarth. Drag the orb to move it.</p></div>
+    </section>
+  </main>
+
+  <form class="ask" id="askForm">
+    <label for="askInput" class="muted" style="position:absolute;left:-9999px">Ask Chota Sarth</label>
+    <input type="text" id="askInput" placeholder="Ask about getting seen…" autocomplete="off">
+    <button class="btn primary" type="submit">Ask</button>
+  </form>
+  <div class="toast" id="toast" role="status"></div>
+<script src="panel.js"></script>
+</body>
+</html>
